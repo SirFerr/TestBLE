@@ -5,7 +5,10 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
@@ -17,8 +20,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -81,17 +87,27 @@ fun DeviceListScreen() {
             }
         }
 
-
-        Button(onClick = {
-            devices = listOf()
-            startBleScan(context = context) { device ->
-                devices = devices + device
+        Row {
+            Button(onClick = {
+                devices = listOf()
+                startBleScan(context = context) { device ->
+                    devices = devices + device
+                }
+            }) {
+                Text(text = "Scan BLE")
             }
-        }) {
-            Text(text = "Scan BLE")
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Button(onClick = {
+                devices = listOf()
+                startBtScan(context = context) { device ->
+                    devices = devices + device
+                }
+            }) {
+                Text(text = "Scan BT")
+            }
         }
-
-
     }
 }
 
@@ -106,7 +122,7 @@ fun RequestPermissions() {
 
     val multiplePermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) {}
+    ){}
 
     LaunchedEffect(key1 = true) {
         multiplePermissionsLauncher.launch(permissionList.toTypedArray())
@@ -140,6 +156,49 @@ fun startBleScan(context: Context, onDeviceFound: (BluetoothDevice) -> Unit) {
 
     Handler(Looper.getMainLooper()).postDelayed({
         bluetoothLeScanner?.stopScan(scanCallback)
+    }, 10000)
+}
+
+fun startBtScan(context: Context, onDeviceFound: (BluetoothDevice) -> Unit) {
+    val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+
+    if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
+        return
+    }
+
+    val pairedDevices: Set<BluetoothDevice>? = bluetoothAdapter.bondedDevices
+    pairedDevices?.forEach { device ->
+        onDeviceFound(device)
+    }
+
+    val discoveryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val device: BluetoothDevice? =
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    device?.let { onDeviceFound(it) }
+                }
+            }
+        }
+    }
+
+    val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
+    context.registerReceiver(discoveryReceiver, filter)
+
+    if (ActivityCompat.checkSelfPermission(
+            context,
+            Manifest.permission.BLUETOOTH_SCAN
+        ) != PackageManager.PERMISSION_GRANTED
+    ) {
+        return
+    }
+
+    bluetoothAdapter.startDiscovery()
+
+    Handler(Looper.getMainLooper()).postDelayed({
+        bluetoothAdapter.cancelDiscovery()
+        context.unregisterReceiver(discoveryReceiver)
     }, 10000)
 }
 
